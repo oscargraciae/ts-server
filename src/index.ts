@@ -1,28 +1,37 @@
 import 'reflect-metadata';
 import express from 'express';
-import { MikroORM } from '@mikro-orm/core'
 import { ApolloServer } from 'apollo-server-express';
 import { buildSchema } from 'type-graphql';
 import redis from 'redis';
 import session from 'express-session';
 import cors from 'cors';
+import { createConnection } from 'typeorm';
+
 // import connectRedis from 'connect-redis';
 
 import { __prod__, COOKIE_NAME } from './constants';
 
-import mikroConfig from './mikro-orm.config';
 import { HelloResolver } from './resolvers/hello';
 import { PostResolver } from './resolvers/post';
 import { UserResolver } from './resolvers/user';
-import { sendEmail } from './utils/sendEmail';
+import { Post } from './entities/Post';
+import { User } from './entities/User';
 
 var RedisStore = require('connect-redis')(session);
 
 const main = async () => {
   // sendEmail('oscar.graciae@gmail.com', 'change your password');
-  const orm = await MikroORM.init(mikroConfig);
-  await orm.getMigrator().up();
-  
+
+  await createConnection({
+    type: 'postgres',
+    database: 'lireddit2',
+    username: 'postgres',
+    password: 'desarrollo',
+    logging: true,
+    synchronize: true,
+    entities: [User, Post],
+  });
+
   const app = express();
 
   // const RedistStore = connectRedis(session);
@@ -47,20 +56,12 @@ const main = async () => {
     resave: false,
   }))
 
-  // redisClient.on('error', (error) => {
-  //   console.error("REDOS ERROR----->", error);
-  // })
-
-  // redisClient.on('ready', (error) => {
-  //   console.error("REDOS ERROR----->", error);
-  // })
-
   const apolloServer = new ApolloServer({
     schema: await buildSchema({
       resolvers: [HelloResolver, PostResolver, UserResolver],
       validate: false,
     }),
-    context: ({ req, res }) => ({ em: orm.em, req, res }),
+    context: ({ req, res }) => ({ req, res, redis }),
   })
 
   apolloServer.applyMiddleware({

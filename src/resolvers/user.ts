@@ -1,15 +1,15 @@
-import { Resolver, Mutation, Field, Args, ArgsType, Ctx, ObjectType, Query, Arg } from "type-graphql";
+import { Resolver, Mutation, Field, Args, ArgsType, Ctx, ObjectType, Query } from "type-graphql";
 import argon2 from 'argon2';
-import { EntityManager } from '@mikro-orm/postgresql';
 
 import { MyContext } from "../types";
 import { User } from "../entities/User";
 import { COOKIE_NAME } from "../constants";
+import { getConnection } from "typeorm";
 
 @ArgsType()
 class UsernamePasswordInput {
-  @Field()
-  email: string
+  @Field({ nullable: true })
+  email?: string
 
   @Field()
   username: string
@@ -37,31 +37,31 @@ class UserResponse {
 @Resolver()
 export class UserResolver {
   @Query(() => User, { nullable: true })
-  async me(@Ctx() { em, req }: MyContext) {
+  async me(@Ctx() { req }: MyContext) {
     if (!req.session.userId) return null;
 
-    const user = await em.findOne(User, { id: req.session.userId });
+    const user = await User.findOne({ where: { id: req.session.userId } });
     return user;
   }
 
   @Mutation(() => UserResponse)
-  async register(@Args() params: UsernamePasswordInput, @Ctx() { em }: MyContext) {
+  async register(@Args() params: UsernamePasswordInput) {
     try {
       const hashPassword = await argon2.hash(params.password);
-      const result = await (em as EntityManager).createQueryBuilder(User).getKnexQuery().insert(
-        {
-          email: params.email, 
-          username: params.username, 
-          password: hashPassword,
-          created_at: new Date(),
-          updated_at: new Date()
-        }
-      ).returning('*');
-      // const user = em.create(User, { username: params.username, password: hashPassword });
+      const result = await getConnection()
+      .createQueryBuilder()
+      .insert()
+      .into(User)
+      .values({
+        username: params.username,
+        email: params.email,
+        password: hashPassword,
+      }).returning("*").execute();
       // await em.persistAndFlush(user);
+      console.log("results--->", result);
       console.log("return register--->" );
       return {
-        user: result[0],
+        user: result.raw[0],
       };
     } catch (error) {
       console.log("ERROR--->", error);
@@ -75,13 +75,14 @@ export class UserResolver {
   }
 
   @Mutation(() => UserResponse)
-  async login(@Args() params: UsernamePasswordInput, @Ctx() { em, req }: MyContext): Promise<UserResponse> {
-    const user = await em.findOneOrFail(User, { username: params.username });
+  async login(@Args() params: UsernamePasswordInput, @Ctx() { req }: MyContext): Promise<UserResponse> {
+    // const user = await em.findOneOrFail(User, { username: params.username });
+    const user = await User.findOne({ where: { username: params.username } });
     if (!user) {
       return {
         errors: [{
           field: 'username',
-          message: 'username does not exist'
+          message: `${params.username} username does not exist`
         }]
       }
     }
@@ -117,9 +118,4 @@ export class UserResolver {
     }))
   }
 
-  @Mutation(() => Boolean)
-  async forgotPassword(@Ctx() { req, em }: MyContext, @Arg('email') email: string) {
-   // const user = await em.findOne(User, { email });
-   return true;
-  }
 }
